@@ -96,8 +96,11 @@ export async function resolveUser(username: string): Promise<XUser> {
   if (cached && Date.now() - cached.at < USER_CACHE_TTL) return cached.user;
 
   let user: XUser;
-  if (config.mockMode || !config.x.enabled) {
+  if (config.mockMode) {
     user = mockUser(username);
+  } else if (!config.x.enabled) {
+    // Never silently fabricate accounts in real mode.
+    throw new XApiError("unavailable", "The X API is not configured on the server.");
   } else {
     const data = await xFetch(`/users/by/username/${encodeURIComponent(username)}`, {
       "user.fields": "description,profile_image_url,protected,name,username",
@@ -131,7 +134,7 @@ export async function fetchRecentPosts(
 ): Promise<XPost[]> {
   const max = Math.min(Math.max(opts.max ?? 30, 5), 100);
 
-  if (config.mockMode || !config.x.enabled) {
+  if (config.mockMode) {
     const acct = findMockAccount(user.username);
     if (!acct) return [];
     let posts: XPost[] = acct.posts.map((p) => ({
@@ -141,10 +144,15 @@ export async function fetchRecentPosts(
       url: `https://x.com/${acct.username}/status/${p.x_post_id}`,
     }));
     if (opts.sinceId) {
-      const idx = posts.findIndex((p) => p.id === opts.sinceId);
-      if (idx !== -1) posts = posts.slice(0, idx);
+      const since = posts.find((p) => p.id === opts.sinceId);
+      if (since) {
+        const cutoff = new Date(since.created_at).getTime();
+        posts = posts.filter((p) => new Date(p.created_at).getTime() > cutoff);
+      }
     }
-    return posts.slice(0, max);
+    return posts
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, max);
   }
 
   const params: Record<string, string> = {

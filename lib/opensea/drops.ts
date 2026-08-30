@@ -71,10 +71,12 @@ export async function verifyOpportunity(
     return { status: "x_only", collection: null, note: null };
   }
 
-  const collection =
-    config.mockMode || !config.opensea.enabled
-      ? mockCollection(slug, opp)
-      : await getOpenSeaCollection(slug);
+  // Fixtures are used ONLY in explicit mock mode — never as a silent fallback
+  // in real mode (that would fabricate verification). In real mode without an
+  // OpenSea key, getOpenSeaCollection returns null and we report x_only.
+  const collection = config.mockMode
+    ? mockCollection(slug, opp)
+    : await getOpenSeaCollection(slug);
 
   if (!collection) {
     return { status: "x_only", collection: null, note: null };

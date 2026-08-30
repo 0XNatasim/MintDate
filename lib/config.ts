@@ -2,10 +2,14 @@
  * Central runtime configuration. Reads environment variables once and
  * derives whether we run against real providers or in-memory mock fixtures.
  *
- * Mock mode is enabled when MINTDATE_MOCK_MODE=true. As a safety net it also
- * turns on automatically when required credentials are absent in a non-prod
- * environment, so `npm run dev` works out of the box. It is NEVER silently
- * used in production — see `assertConfigSafe()`.
+ * Mock mode is enabled when MINTDATE_MOCK_MODE=true (an explicit, clearly
+ * labeled opt-in — the UI shows a MOCK MODE badge and /api/health reports it).
+ * As a convenience it also turns on automatically when credentials are absent
+ * in a NON-production environment, so `npm run dev` works out of the box.
+ *
+ * Crucially, mock mode is the ONLY thing that makes providers serve fixtures.
+ * In production without MINTDATE_MOCK_MODE, missing credentials cause loud,
+ * explicit errors rather than silently fabricated data.
  */
 
 function boolEnv(value: string | undefined): boolean {
@@ -67,17 +71,5 @@ export const config = {
     scanWindowSeconds: intEnv(process.env.RATE_LIMIT_SCAN_WINDOW_SECONDS, 60),
   },
 } as const;
-
-/**
- * Guards against shipping mock mode to production. Called from provider
- * entrypoints. Throws a clear error rather than silently serving fixtures.
- */
-export function assertConfigSafe(): void {
-  if (config.isProd && config.explicitMock) {
-    throw new Error(
-      "MINTDATE_MOCK_MODE=true is not allowed in production. Configure real providers or unset it.",
-    );
-  }
-}
 
 export type AppConfig = typeof config;

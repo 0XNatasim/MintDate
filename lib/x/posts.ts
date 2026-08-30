@@ -5,19 +5,20 @@
 
 import type { XPost } from "./client";
 
-/** X post ids are numeric snowflakes; compare as BigInt when possible. */
-export function newestPostId(posts: { id: string }[]): string | null {
+/**
+ * The id of the newest post, used as the next scan's `since_id` cursor. We pick
+ * by timestamp (robust for both real snowflake ids and mock ids). This is the
+ * core cost control — later scans fetch only posts newer than this.
+ */
+export function newestPostId(posts: { id: string; created_at: string }[]): string | null {
   if (posts.length === 0) return null;
-  let newest = posts[0].id;
+  let newest = posts[0];
   for (const p of posts) {
-    try {
-      if (BigInt(p.id) > BigInt(newest)) newest = p.id;
-    } catch {
-      // Non-numeric (mock) ids: fall back to lexical max.
-      if (p.id > newest) newest = p.id;
+    if (new Date(p.created_at).getTime() > new Date(newest.created_at).getTime()) {
+      newest = p;
     }
   }
-  return newest;
+  return newest.id;
 }
 
 export function sortNewestFirst(posts: XPost[]): XPost[] {
