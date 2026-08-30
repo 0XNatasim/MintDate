@@ -95,6 +95,21 @@ export const MOCK_ACCOUNTS: MockAccount[] = [
     ],
   },
   {
+    username: "SeaDropNFT",
+    name: "SeaDrop",
+    description: "Mint lives on OpenSea.",
+    x_user_id: "mock_1005",
+    openseaSlug: "seadrop-nft",
+    posts: [
+      {
+        x_post_id: "mock_p_1005_1",
+        daysFromNow: -1,
+        // No date in the tweet — the date/price/supply come from the OpenSea drop.
+        text: "Mint is live 👉 https://opensea.io/collection/seadrop-nft",
+      },
+    ],
+  },
+  {
     username: "ConflictNFT",
     name: "Conflict Collective",
     description: "Onchain since day one.",

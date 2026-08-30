@@ -14,6 +14,19 @@ describe("runScan (mock mode, end-to-end)", () => {
     expect(publicMint?.price).toBe("0.08");
   });
 
+  it("backfills date/price/supply from OpenSea when the post only links the drop", async () => {
+    const result = await runScan("SeaDropNFT");
+    expect(result.opportunities.length).toBeGreaterThan(0);
+    const opp = result.opportunities[0];
+    // The tweet had no date, but the OpenSea drop does — it should be sourced.
+    expect(opp.mint_date).not.toBeNull();
+    expect(opp.verification_status).toBe("opensea_verified");
+    expect(opp.price).not.toBeNull();
+    expect(opp.supply).not.toBeNull();
+    // OpenSea stage times are absolute UTC.
+    expect(opp.timezone).toBe("UTC");
+  });
+
   it("marks conflicting sources, not verified", async () => {
     const result = await runScan("ConflictNFT");
     const opp = result.opportunities[0];

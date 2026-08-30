@@ -108,7 +108,7 @@ export async function runScan(
       let openseaUrl = sanitizeExternalUrl(extraction.openSeaUrl);
       if (openseaUrl && !isOpenSeaUrl(openseaUrl)) openseaUrl = null;
 
-      // 8. OpenSea verification (compare, never overwrite).
+      // 8. OpenSea verification / sourcing.
       const verification = await verifyOpportunity({
         mint_date: normalized?.utc ?? null,
         opensea_url: openseaUrl,
@@ -122,8 +122,23 @@ export async function runScan(
         openseaUrl = verification.collection.url;
       }
 
+      // Backfill from the OpenSea drop when the post itself is thin (e.g. it
+      // just links the OpenSea mint page). OpenSea is authoritative here, so we
+      // adopt its date/price/supply rather than showing "Date unknown". The X
+      // date, when present, still wins — we never overwrite it.
+      const col = verification.collection;
+      const mintDate = normalized?.utc ?? col?.mintDateUtc ?? null;
+      // OpenSea stage times are absolute UTC; label them UTC when we sourced them.
+      const timezone =
+        normalized?.timezone ??
+        resolveTimezone(extraction.timezone) ??
+        (!normalized?.utc && col?.mintDateUtc ? "UTC" : null);
+      const price = extraction.price ?? col?.price ?? null;
+      const currency = extraction.currency ?? col?.currency ?? null;
+      const supply = extraction.supply ?? col?.supply ?? null;
+
       const status = deriveStatus({
-        mint_date: normalized?.utc ?? null,
+        mint_date: mintDate,
         mint_end_date: normalizedEnd?.utc ?? null,
         verification_status: verification.status,
         hasMintInfo: true,
@@ -133,13 +148,13 @@ export async function runScan(
         project_id: project.id,
         type: extraction.opportunityType,
         title: extraction.project ?? project.name,
-        mint_date: normalized?.utc ?? null,
+        mint_date: mintDate,
         mint_end_date: normalizedEnd?.utc ?? null,
-        timezone: normalized?.timezone ?? resolveTimezone(extraction.timezone),
+        timezone,
         chain: extraction.chain,
-        price: extraction.price,
-        currency: extraction.currency,
-        supply: extraction.supply,
+        price,
+        currency,
+        supply,
         mint_url: mintUrl,
         opensea_url: openseaUrl,
         source_post_id: post.id,

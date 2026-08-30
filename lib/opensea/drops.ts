@@ -45,15 +45,29 @@ function mockCollection(
   const base = opp.mint_date ? new Date(opp.mint_date).getTime() : null;
   // Slugs containing "conflict" disagree by a day.
   const disagrees = /conflict/i.test(slug);
-  const mintDateUtc =
-    base !== null
-      ? new Date(base + (disagrees ? 86_400_000 : 0)).toISOString()
-      : null;
+
+  if (base === null) {
+    // The post carried no date — simulate a published OpenSea drop so the
+    // backfill path is demoable. Deterministic: 3 days out at 16:00 UTC.
+    const d = new Date();
+    d.setUTCHours(16, 0, 0, 0);
+    const mintDateUtc = new Date(d.getTime() + 3 * 86_400_000).toISOString();
+    return {
+      slug,
+      name: null,
+      url: `https://opensea.io/collection/${slug}`,
+      mintDateUtc,
+      price: opp.price ?? "0.02",
+      currency: opp.currency ?? "ETH",
+      supply: opp.supply ?? "1000",
+    };
+  }
+
   return {
     slug,
     name: null,
     url: `https://opensea.io/collection/${slug}`,
-    mintDateUtc,
+    mintDateUtc: new Date(base + (disagrees ? 86_400_000 : 0)).toISOString(),
     price: opp.price,
     currency: opp.currency,
     supply: opp.supply,
@@ -82,7 +96,17 @@ export async function verifyOpportunity(
     return { status: "x_only", collection: null, note: null };
   }
 
-  // If we have no date on either side we can only say we found the collection.
+  // The post had no date but OpenSea publishes one: OpenSea is the source of
+  // truth here. Adopt it (the pipeline backfills) and mark it verified.
+  if (!opp.mint_date && collection.mintDateUtc) {
+    return {
+      status: "opensea_verified",
+      collection,
+      note: "Mint date sourced from OpenSea.",
+    };
+  }
+
+  // Neither side has a comparable date — we only found the collection.
   if (!opp.mint_date || !collection.mintDateUtc) {
     return {
       status: "x_only",
