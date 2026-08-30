@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * MintDate design tokens. Dark-first crypto dashboard. HSL channels so Tailwind
+ * `/opacity` modifiers work. A light theme is provided for completeness but the
+ * product is designed dark.
+ */
+:root {
+  --background: 222 30% 6%;
+  --foreground: 210 20% 96%;
+
+  --card: 222 26% 9%;
+  --card-foreground: 210 20% 96%;
+
+  --primary: 152 76% 46%; /* mint green */
+  --primary-foreground: 152 60% 8%;
+
+  --secondary: 222 20% 14%;
+  --secondary-foreground: 210 16% 88%;
+
+  --muted: 222 18% 16%;
+  --muted-foreground: 215 14% 60%;
+
+  --accent: 222 22% 15%;
+  --accent-foreground: 210 20% 96%;
+
+  --border: 220 18% 18%;
+  --input: 220 18% 18%;
+  --ring: 152 76% 46%;
+
+  --success: 152 66% 48%;
+  --warning: 38 92% 58%;
+  --danger: 0 84% 62%;
+
+  --radius: 0.7rem;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+
+/* Optional light theme (product is dark by default via <html class="dark">). */
+.light {
+  --background: 210 30% 98%;
+  --foreground: 222 30% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 30% 10%;
+  --secondary: 210 20% 94%;
+  --secondary-foreground: 222 20% 20%;
+  --muted: 210 20% 92%;
+  --muted-foreground: 215 16% 42%;
+  --accent: 210 20% 92%;
+  --accent-foreground: 222 30% 10%;
+  --border: 214 20% 86%;
+  --input: 214 20% 86%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Ambient gradient backdrop — restrained. */
+.mint-backdrop {
+  background-image:
+    radial-gradient(60rem 40rem at 80% -10%, hsl(152 76% 46% / 0.08), transparent 60%),
+    radial-gradient(50rem 40rem at 0% 0%, hsl(212 90% 55% / 0.06), transparent 55%);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Thin, subtle scrollbars. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 999px;
+}
