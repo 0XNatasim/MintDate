@@ -16,8 +16,14 @@ export function GET() {
     providers: {
       supabase: config.supabase.enabled,
       x: config.x.enabled,
-      openai: config.openai.enabled,
       opensea: config.opensea.enabled,
+      llm: config.openai.enabled
+        ? {
+            enabled: true,
+            mode: config.openai.isLocal ? "local" : "openai",
+            model: config.openai.model,
+          }
+        : { enabled: false, mode: "rule-based-fallback" },
     },
     time: new Date().toISOString(),
   });

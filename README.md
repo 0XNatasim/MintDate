@@ -81,11 +81,32 @@ copy an **app-only Bearer token** into `X_BEARER_TOKEN`. The app uses:
 `GET /2/users/by/username/:name` and `GET /2/users/:id/tweets` with
 `since_id` for incremental fetches.
 
-### OpenAI setup
+### LLM setup (OpenAI **or** a local model like Hermes)
 
-Add `OPENAI_API_KEY`. Extraction uses structured outputs (JSON schema, `strict`)
-with `gpt-4o-mini` by default (`OPENAI_MODEL` to override). If OpenAI is
-unavailable the pipeline degrades to a deterministic rule-based parser.
+Extraction talks to any **OpenAI-compatible** endpoint.
+
+- **Cloud OpenAI:** set `OPENAI_API_KEY` (uses strict JSON-schema structured
+  outputs, `gpt-4o-mini` by default; `OPENAI_MODEL` to override).
+- **Local model (no cloud key):** run Hermes via Ollama / LM Studio /
+  llama.cpp / vLLM and set `OPENAI_BASE_URL` + `OPENAI_MODEL`:
+
+  ```bash
+  # Ollama example
+  ollama pull hermes3
+  # .env.local
+  OPENAI_BASE_URL=http://localhost:11434/v1
+  OPENAI_MODEL=hermes3
+  # OPENAI_API_KEY can be left blank for local servers
+  ```
+
+  The app auto-detects a local endpoint and switches to JSON-object mode
+  (validated/repaired with Zod, since local runtimes don't all support strict
+  schemas). A configured LLM is used for extraction **even in mock mode**, so
+  you can exercise Hermes on the built-in fixture accounts with no X / Supabase
+  / OpenSea keys at all.
+
+If no LLM is configured, the pipeline degrades to a deterministic rule-based
+parser (regex/heuristics) — real extraction on real text, never fabricated.
 
 ### OpenSea setup
 

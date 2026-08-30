@@ -37,7 +37,26 @@ CRITICAL RULES — follow exactly:
 - If there is no mint information at all, set mintFound = false and everything else to null/"unknown".
 
 mintDateIso format: ISO-8601. If you know the exact timezone offset, include it; otherwise emit a naive local time (no offset) and put the zone name in "timezone".
-confidence: "high" = explicit date/time/link; "medium" = clear mint info but incomplete; "low" = ambiguous or promotional.`;
+confidence: "high" = explicit date/time/link; "medium" = clear mint info but incomplete; "low" = ambiguous or promotional.
+
+Respond with ONLY a JSON object (no prose, no code fences) with exactly these keys:
+{
+  "mintFound": boolean,
+  "project": string|null,
+  "opportunityType": "allowlist"|"presale"|"public"|"free"|"claim"|"auction"|"snapshot"|"registration"|"unknown",
+  "mintDateText": string|null,
+  "mintDateIso": string|null,
+  "mintEndDateIso": string|null,
+  "timezone": string|null,
+  "chain": string|null,
+  "price": string|null,
+  "currency": string|null,
+  "supply": string|null,
+  "officialMintUrl": string|null,
+  "openSeaUrl": string|null,
+  "confidence": "high"|"medium"|"low",
+  "evidence": string|null
+}`;
 
 function buildUserPrompt(text: string, ctx: ExtractContext): string {
   return [
@@ -55,18 +74,53 @@ function buildUserPrompt(text: string, ctx: ExtractContext): string {
 
 let _client: OpenAI | null = null;
 function openaiClient(): OpenAI {
-  if (!_client) _client = new OpenAI({ apiKey: config.openai.apiKey });
+  if (!_client) {
+    _client = new OpenAI({
+      apiKey: config.openai.apiKey,
+      // When set, routes to a local OpenAI-compatible server (Ollama, LM
+      // Studio, llama.cpp, vLLM) instead of api.openai.com.
+      ...(config.openai.baseUrl ? { baseURL: config.openai.baseUrl } : {}),
+    });
+  }
   return _client;
+}
+
+/** Extract the first balanced JSON object from a model response (handles code
+ * fences and stray prose that smaller local models sometimes add). */
+function extractJsonObject(raw: string): unknown {
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1] : raw;
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) throw new Error("No JSON object found");
+  return JSON.parse(candidate.slice(start, end + 1));
 }
 
 export async function extractMintFromPost(
   text: string,
   ctx: ExtractContext,
 ): Promise<MintExtraction> {
-  if (config.mockMode || !config.openai.enabled) {
+  // Use a configured LLM (OpenAI or a local endpoint) whenever one is
+  // available — even in mock mode, so a local Hermes model can be exercised
+  // with no other credentials. Only fall back to the rule-based parser when
+  // no LLM is configured at all.
+  if (!config.openai.enabled) {
     return mockExtract(text, ctx);
   }
   try {
+    // OpenAI supports strict json_schema; local runtimes vary, so we ask for a
+    // plain JSON object there and validate/repair with Zod.
+    const response_format = config.openai.isLocal
+      ? ({ type: "json_object" } as const)
+      : ({
+          type: "json_schema",
+          json_schema: {
+            name: "mint_opportunity",
+            strict: true,
+            schema: mintOpportunityJsonSchema,
+          },
+        } as const);
+
     const completion = await openaiClient().chat.completions.create({
       model: config.openai.model,
       temperature: 0,
@@ -74,21 +128,18 @@ export async function extractMintFromPost(
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: buildUserPrompt(text, ctx) },
       ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "mint_opportunity",
-          strict: true,
-          schema: mintOpportunityJsonSchema,
-        },
-      },
+      response_format,
     });
     const raw = completion.choices[0]?.message?.content;
     if (!raw) throw new Error("Empty extraction response");
-    const parsed = MintOpportunitySchema.parse(JSON.parse(raw));
-    return parsed;
+    const json = config.openai.isLocal ? extractJsonObject(raw) : JSON.parse(raw);
+    return MintOpportunitySchema.parse(json);
   } catch (err) {
-    logger.error("openai_extraction_failed", { err, username: ctx.username });
+    logger.error("llm_extraction_failed", {
+      err,
+      username: ctx.username,
+      local: config.openai.isLocal,
+    });
     // Degrade gracefully to the rule-based parser rather than dropping the post.
     return mockExtract(text, ctx);
   }

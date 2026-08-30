@@ -30,7 +30,14 @@ const hasSupabase = Boolean(
     process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
 const hasX = Boolean(process.env.X_BEARER_TOKEN);
-const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
+
+// The extractor talks to any OpenAI-compatible endpoint. That includes the
+// OpenAI API (OPENAI_API_KEY) AND local runtimes like Ollama / LM Studio /
+// llama.cpp / vLLM serving a model such as Hermes (OPENAI_BASE_URL). A local
+// endpoint typically needs no real key, so a base URL alone enables it.
+const llmBaseUrl = process.env.OPENAI_BASE_URL ?? "";
+const isLocalLlm = Boolean(llmBaseUrl);
+const hasOpenAI = Boolean(process.env.OPENAI_API_KEY) || isLocalLlm;
 
 // In non-production, fall back to mock mode when core credentials are missing
 // so the app is runnable with zero setup.
@@ -54,8 +61,12 @@ export const config = {
   },
 
   openai: {
-    apiKey: process.env.OPENAI_API_KEY ?? "",
-    model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+    // A local endpoint often needs no key; the SDK still requires a non-empty
+    // string, so use a placeholder when only a base URL is configured.
+    apiKey: process.env.OPENAI_API_KEY || (isLocalLlm ? "local" : ""),
+    baseUrl: llmBaseUrl, // e.g. http://localhost:11434/v1 (Ollama)
+    isLocal: isLocalLlm,
+    model: process.env.OPENAI_MODEL ?? (isLocalLlm ? "hermes3" : "gpt-4o-mini"),
     enabled: hasOpenAI,
   },
 
