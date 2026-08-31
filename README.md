@@ -87,23 +87,32 @@ Extraction talks to any **OpenAI-compatible** endpoint.
 
 - **Cloud OpenAI:** set `OPENAI_API_KEY` (uses strict JSON-schema structured
   outputs, `gpt-4o-mini` by default; `OPENAI_MODEL` to override).
+- **OpenRouter or any cloud gateway** (e.g. Nemotron, Hermes): set the base URL,
+  your key, and the exact model slug:
+
+  ```bash
+  OPENAI_BASE_URL=https://openrouter.ai/api/v1
+  OPENAI_API_KEY=sk-or-...            # your OpenRouter key
+  OPENAI_MODEL=nvidia/nemotron-...    # exact slug from openrouter.ai/models
+  ```
+
 - **Local model (no cloud key):** run Hermes via Ollama / LM Studio /
   llama.cpp / vLLM and set `OPENAI_BASE_URL` + `OPENAI_MODEL`:
 
   ```bash
-  # Ollama example
   ollama pull hermes3
-  # .env.local
   OPENAI_BASE_URL=http://localhost:11434/v1
   OPENAI_MODEL=hermes3
   # OPENAI_API_KEY can be left blank for local servers
   ```
 
-  The app auto-detects a local endpoint and switches to JSON-object mode
-  (validated/repaired with Zod, since local runtimes don't all support strict
-  schemas). A configured LLM is used for extraction **even in mock mode**, so
-  you can exercise Hermes on the built-in fixture accounts with no X / Supabase
-  / OpenSea keys at all.
+For any non-OpenAI endpoint the app switches to JSON-object mode (validated /
+repaired with Zod, since gateways and local runtimes don't all support strict
+schemas) and, if a model rejects `response_format` entirely, retries relying on
+the prompt alone. A configured LLM is used for extraction **even in mock mode**,
+so you can exercise your model on the built-in fixture accounts with no X /
+Supabase / OpenSea keys at all. Confirm the wiring at `/api/health` →
+`llm: { mode: "openrouter" | "local" | "openai", model }`.
 
 If no LLM is configured, the pipeline degrades to a deterministic rule-based
 parser (regex/heuristics) — real extraction on real text, never fabricated.

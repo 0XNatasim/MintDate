@@ -35,9 +35,14 @@ const hasX = Boolean(process.env.X_BEARER_TOKEN);
 // OpenAI API (OPENAI_API_KEY) AND local runtimes like Ollama / LM Studio /
 // llama.cpp / vLLM serving a model such as Hermes (OPENAI_BASE_URL). A local
 // endpoint typically needs no real key, so a base URL alone enables it.
+// A custom endpoint is any OpenAI-compatible base URL that is not the OpenAI
+// API itself: a local runtime (Ollama/LM Studio/llama.cpp/vLLM) OR a cloud
+// gateway like OpenRouter fronting an arbitrary model (e.g. Nemotron).
 const llmBaseUrl = process.env.OPENAI_BASE_URL ?? "";
-const isLocalLlm = Boolean(llmBaseUrl);
-const hasOpenAI = Boolean(process.env.OPENAI_API_KEY) || isLocalLlm;
+const isCustomEndpoint = Boolean(llmBaseUrl);
+// A cloud gateway (e.g. OpenRouter) still needs a real key; a local server
+// usually does not. So a base URL alone enables the LLM.
+const hasOpenAI = Boolean(process.env.OPENAI_API_KEY) || isCustomEndpoint;
 
 // In non-production, fall back to mock mode when core credentials are missing
 // so the app is runnable with zero setup.
@@ -62,11 +67,12 @@ export const config = {
 
   openai: {
     // A local endpoint often needs no key; the SDK still requires a non-empty
-    // string, so use a placeholder when only a base URL is configured.
-    apiKey: process.env.OPENAI_API_KEY || (isLocalLlm ? "local" : ""),
-    baseUrl: llmBaseUrl, // e.g. http://localhost:11434/v1 (Ollama)
-    isLocal: isLocalLlm,
-    model: process.env.OPENAI_MODEL ?? (isLocalLlm ? "hermes3" : "gpt-4o-mini"),
+    // string, so use a placeholder when only a base URL is configured. A cloud
+    // gateway (OpenRouter) requires the real key to be set here.
+    apiKey: process.env.OPENAI_API_KEY || (isCustomEndpoint ? "local" : ""),
+    baseUrl: llmBaseUrl, // e.g. http://localhost:11434/v1 or https://openrouter.ai/api/v1
+    isCustomEndpoint,
+    model: process.env.OPENAI_MODEL ?? (isCustomEndpoint ? "hermes3" : "gpt-4o-mini"),
     enabled: hasOpenAI,
   },
 

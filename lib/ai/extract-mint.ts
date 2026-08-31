@@ -75,11 +75,17 @@ function buildUserPrompt(text: string, ctx: ExtractContext): string {
 let _client: OpenAI | null = null;
 function openaiClient(): OpenAI {
   if (!_client) {
+    const isOpenRouter = /openrouter\.ai/i.test(config.openai.baseUrl);
     _client = new OpenAI({
       apiKey: config.openai.apiKey,
-      // When set, routes to a local OpenAI-compatible server (Ollama, LM
-      // Studio, llama.cpp, vLLM) instead of api.openai.com.
+      // When set, routes to any OpenAI-compatible endpoint (a local runtime
+      // like Ollama/LM Studio, or a cloud gateway like OpenRouter) instead of
+      // api.openai.com.
       ...(config.openai.baseUrl ? { baseURL: config.openai.baseUrl } : {}),
+      // OpenRouter uses these optional headers for app attribution/rankings.
+      ...(isOpenRouter
+        ? { defaultHeaders: { "HTTP-Referer": "https://mintdate.app", "X-Title": "MintDate" } }
+        : {}),
     });
   }
   return _client;
@@ -107,38 +113,63 @@ export async function extractMintFromPost(
   if (!config.openai.enabled) {
     return mockExtract(text, ctx);
   }
-  try {
-    // OpenAI supports strict json_schema; local runtimes vary, so we ask for a
-    // plain JSON object there and validate/repair with Zod.
-    const response_format = config.openai.isLocal
-      ? ({ type: "json_object" } as const)
-      : ({
-          type: "json_schema",
-          json_schema: {
-            name: "mint_opportunity",
-            strict: true,
-            schema: mintOpportunityJsonSchema,
-          },
-        } as const);
+  const messages = [
+    { role: "system" as const, content: SYSTEM_PROMPT },
+    { role: "user" as const, content: buildUserPrompt(text, ctx) },
+  ];
 
+  // OpenAI supports strict json_schema. Custom/gateway endpoints (a local
+  // runtime, or a gateway like OpenRouter fronting an arbitrary model) vary in
+  // what they accept, so we request a plain JSON object and, if the endpoint
+  // rejects response_format at all, retry relying on the prompt alone.
+  const jsonSchemaFormat = {
+    type: "json_schema" as const,
+    json_schema: {
+      name: "mint_opportunity",
+      strict: true,
+      schema: mintOpportunityJsonSchema,
+    },
+  };
+
+  async function call(useFormat: boolean): Promise<string> {
     const completion = await openaiClient().chat.completions.create({
       model: config.openai.model,
       temperature: 0,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: buildUserPrompt(text, ctx) },
-      ],
-      response_format,
+      messages,
+      ...(useFormat
+        ? {
+            response_format: config.openai.isCustomEndpoint
+              ? ({ type: "json_object" } as const)
+              : jsonSchemaFormat,
+          }
+        : {}),
     });
     const raw = completion.choices[0]?.message?.content;
     if (!raw) throw new Error("Empty extraction response");
-    const json = config.openai.isLocal ? extractJsonObject(raw) : JSON.parse(raw);
+    return raw;
+  }
+
+  try {
+    let raw: string;
+    try {
+      raw = await call(true);
+    } catch (formatErr) {
+      // Some gateway models reject response_format — retry prompt-only.
+      if (config.openai.isCustomEndpoint) {
+        logger.warn("llm_response_format_rejected_retrying", { username: ctx.username });
+        raw = await call(false);
+      } else {
+        throw formatErr;
+      }
+    }
+    // Tolerant parse for custom endpoints (fences/prose); strict for OpenAI.
+    const json = config.openai.isCustomEndpoint ? extractJsonObject(raw) : JSON.parse(raw);
     return MintOpportunitySchema.parse(json);
   } catch (err) {
     logger.error("llm_extraction_failed", {
       err,
       username: ctx.username,
-      local: config.openai.isLocal,
+      customEndpoint: config.openai.isCustomEndpoint,
     });
     // Degrade gracefully to the rule-based parser rather than dropping the post.
     return mockExtract(text, ctx);

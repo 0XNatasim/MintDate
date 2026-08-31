@@ -8,6 +8,13 @@ export const dynamic = "force-dynamic";
  * Liveness/readiness endpoint. Reports which providers are configured, but
  * NEVER exposes any secret value.
  */
+function llmMode(baseUrl: string): string {
+  if (!baseUrl) return "openai";
+  if (/openrouter\.ai/i.test(baseUrl)) return "openrouter";
+  if (/localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(baseUrl)) return "local";
+  return "custom";
+}
+
 export function GET() {
   return NextResponse.json({
     status: "ok",
@@ -20,7 +27,7 @@ export function GET() {
       llm: config.openai.enabled
         ? {
             enabled: true,
-            mode: config.openai.isLocal ? "local" : "openai",
+            mode: llmMode(config.openai.baseUrl),
             model: config.openai.model,
           }
         : { enabled: false, mode: "rule-based-fallback" },
