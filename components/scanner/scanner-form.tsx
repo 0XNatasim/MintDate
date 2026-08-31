@@ -14,7 +14,15 @@ const STAGES = [
   "Building results…",
 ];
 
-export function ScannerForm({ autoFocus }: { autoFocus?: boolean }) {
+export function ScannerForm({
+  autoFocus,
+  canScanTimeline = true,
+}: {
+  autoFocus?: boolean;
+  /** When false (no X API + not mock), a whole-account scan isn't possible;
+   * a specific post URL is routed to the free syndication ingest instead. */
+  canScanTimeline?: boolean;
+}) {
   const router = useRouter();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -41,11 +49,19 @@ export function ScannerForm({ autoFocus }: { autoFocus?: boolean }) {
     setLoading(true);
     advanceStages();
     try {
-      const res = await fetch("/api/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: value }),
-      });
+      // With the paid X API (or mock), scan the account timeline. Otherwise use
+      // the free single-post ingest (works when the input is a post URL).
+      const res = canScanTimeline
+        ? await fetch("/api/scan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ input: value }),
+          })
+        : await fetch("/api/ingest", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: value }),
+          });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "Scan failed. Please try again.");

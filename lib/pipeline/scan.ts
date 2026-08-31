@@ -11,7 +11,7 @@
 import { config } from "@/lib/config";
 import { logger } from "@/lib/logger";
 import { getStore } from "@/lib/store";
-import type { Opportunity, ScanResult } from "@/lib/types";
+import type { Opportunity, Project, ScanResult } from "@/lib/types";
 import { resolveUser, fetchRecentPosts, logXUsage } from "@/lib/x/client";
 import { newestPostId, sortNewestFirst } from "@/lib/x/posts";
 import { isPotentiallyRelevant } from "@/lib/ai/keywords";
@@ -91,80 +91,9 @@ export async function runScan(
       })),
     )) {
       processedIds.push(post.id);
-      const relevance = isPotentiallyRelevant(post.text);
-      if (!relevance.relevant) continue;
-      postsProcessed++;
-
-      const extraction = await extractMintFromPost(post.text, {
-        username: user.username,
-        projectName: project.name,
-        postedAt: post.created_at,
-      });
-      if (!extraction.mintFound) continue;
-
-      const normalized = normalizeMintDate(extraction.mintDateIso, extraction.timezone);
-      const normalizedEnd = normalizeMintDate(extraction.mintEndDateIso, extraction.timezone);
-      const mintUrl = sanitizeExternalUrl(extraction.officialMintUrl);
-      let openseaUrl = sanitizeExternalUrl(extraction.openSeaUrl);
-      if (openseaUrl && !isOpenSeaUrl(openseaUrl)) openseaUrl = null;
-
-      // 8. OpenSea verification / sourcing.
-      const verification = await verifyOpportunity({
-        mint_date: normalized?.utc ?? null,
-        opensea_url: openseaUrl,
-        price: extraction.price,
-        currency: extraction.currency,
-        supply: extraction.supply,
-        openseaSlugHint,
-      });
-
-      if (!openseaUrl && verification.collection?.url) {
-        openseaUrl = verification.collection.url;
-      }
-
-      // Backfill from the OpenSea drop when the post itself is thin (e.g. it
-      // just links the OpenSea mint page). OpenSea is authoritative here, so we
-      // adopt its date/price/supply rather than showing "Date unknown". The X
-      // date, when present, still wins — we never overwrite it.
-      const col = verification.collection;
-      const mintDate = normalized?.utc ?? col?.mintDateUtc ?? null;
-      // OpenSea stage times are absolute UTC; label them UTC when we sourced them.
-      const timezone =
-        normalized?.timezone ??
-        resolveTimezone(extraction.timezone) ??
-        (!normalized?.utc && col?.mintDateUtc ? "UTC" : null);
-      const price = extraction.price ?? col?.price ?? null;
-      const currency = extraction.currency ?? col?.currency ?? null;
-      const supply = extraction.supply ?? col?.supply ?? null;
-
-      const status = deriveStatus({
-        mint_date: mintDate,
-        mint_end_date: normalizedEnd?.utc ?? null,
-        verification_status: verification.status,
-        hasMintInfo: true,
-      });
-
-      await store.upsertOpportunity({
-        project_id: project.id,
-        type: extraction.opportunityType,
-        title: extraction.project ?? project.name,
-        mint_date: mintDate,
-        mint_end_date: normalizedEnd?.utc ?? null,
-        timezone,
-        chain: extraction.chain,
-        price,
-        currency,
-        supply,
-        mint_url: mintUrl,
-        opensea_url: openseaUrl,
-        source_post_id: post.id,
-        source_post_url: post.url,
-        source_text: post.text,
-        confidence: extraction.confidence,
-        verification_status: verification.status,
-        status,
-      });
-      opportunitiesFound++;
+      const outcome = await processPost(project, post, openseaSlugHint);
+      if (outcome.analyzed) postsProcessed++;
+      if (outcome.opportunityCreated) opportunitiesFound++;
     }
 
     await store.markPostsProcessed(processedIds);
@@ -221,6 +150,92 @@ export async function runScan(
     });
     throw err;
   }
+}
+
+export interface ProcessedPost {
+  id: string;
+  text: string;
+  created_at: string;
+  url: string;
+}
+
+/**
+ * Runs a single post through keyword filter → extraction → OpenSea verification
+ * → persistence. Shared by `runScan` (X timeline) and the free ingest paths
+ * (pasted text, single-tweet syndication). Returns whether it was analyzed and
+ * whether an opportunity was created/updated.
+ */
+export async function processPost(
+  project: Project,
+  post: ProcessedPost,
+  openseaSlugHint: string | null,
+): Promise<{ analyzed: boolean; opportunityCreated: boolean }> {
+  const store = getStore();
+  if (!isPotentiallyRelevant(post.text).relevant) {
+    return { analyzed: false, opportunityCreated: false };
+  }
+
+  const extraction = await extractMintFromPost(post.text, {
+    username: project.x_username,
+    projectName: project.name,
+    postedAt: post.created_at,
+  });
+  if (!extraction.mintFound) return { analyzed: true, opportunityCreated: false };
+
+  const normalized = normalizeMintDate(extraction.mintDateIso, extraction.timezone);
+  const normalizedEnd = normalizeMintDate(extraction.mintEndDateIso, extraction.timezone);
+  const mintUrl = sanitizeExternalUrl(extraction.officialMintUrl);
+  let openseaUrl = sanitizeExternalUrl(extraction.openSeaUrl);
+  if (openseaUrl && !isOpenSeaUrl(openseaUrl)) openseaUrl = null;
+
+  const verification = await verifyOpportunity({
+    mint_date: normalized?.utc ?? null,
+    opensea_url: openseaUrl,
+    price: extraction.price,
+    currency: extraction.currency,
+    supply: extraction.supply,
+    openseaSlugHint,
+  });
+
+  if (!openseaUrl && verification.collection?.url) openseaUrl = verification.collection.url;
+
+  // Backfill from the OpenSea drop when the post is thin. The X date, when
+  // present, always wins — we never overwrite it.
+  const col = verification.collection;
+  const mintDate = normalized?.utc ?? col?.mintDateUtc ?? null;
+  const timezone =
+    normalized?.timezone ??
+    resolveTimezone(extraction.timezone) ??
+    (!normalized?.utc && col?.mintDateUtc ? "UTC" : null);
+
+  const status = deriveStatus({
+    mint_date: mintDate,
+    mint_end_date: normalizedEnd?.utc ?? null,
+    verification_status: verification.status,
+    hasMintInfo: true,
+  });
+
+  await store.upsertOpportunity({
+    project_id: project.id,
+    type: extraction.opportunityType,
+    title: extraction.project ?? project.name,
+    mint_date: mintDate,
+    mint_end_date: normalizedEnd?.utc ?? null,
+    timezone,
+    chain: extraction.chain,
+    price: extraction.price ?? col?.price ?? null,
+    currency: extraction.currency ?? col?.currency ?? null,
+    supply: extraction.supply ?? col?.supply ?? null,
+    mint_url: mintUrl,
+    opensea_url: openseaUrl,
+    source_post_id: post.id,
+    source_post_url: post.url,
+    source_text: post.text,
+    confidence: extraction.confidence,
+    verification_status: verification.status,
+    status,
+  });
+  return { analyzed: true, opportunityCreated: true };
 }
 
 /** Recompute time-sensitive statuses on read so "live"/"ended" stay current. */
